@@ -301,6 +301,7 @@ function Toast({ msg, onDone }) {
 
 // ─── AUTH SCREEN ──────────────────────────────────────────────
 function AuthScreen({ onLoginSuccess }) {
+  const [mode, setMode] = useState("unlock"); // Default to unlock for returning gym lifters
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
@@ -350,7 +351,7 @@ function AuthScreen({ onLoginSuccess }) {
     <div style={{ ...S.page, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: "80vh", paddingTop: 40 }}>
       
       {/* Visual Title / Brand */}
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div style={{ fontSize: 60, marginBottom: 8, display: "inline-block", animation: "pulseGlow 2s infinite", borderRadius: "50%", padding: 10 }}>🏋️</div>
         <h2 style={{ fontSize: 32, fontWeight: 700, margin: 0, letterSpacing: -0.5, color: "#fff" }}>
           IRON <span style={S.accentLogo}>LOG</span>
@@ -360,19 +361,59 @@ function AuthScreen({ onLoginSuccess }) {
         </p>
       </div>
 
+      {/* Mode Switcher Tabs */}
+      <div style={{ display: "flex", background: "#151c2c", padding: 4, borderRadius: 12, border: "1px solid #1e293b", marginBottom: 16 }}>
+        <button 
+          type="button"
+          onClick={() => { setMode("unlock"); setError(""); }}
+          style={{
+            flex: 1,
+            padding: "10px 0",
+            borderRadius: 8,
+            border: "none",
+            background: mode === "unlock" ? "#1e293b" : "transparent",
+            color: mode === "unlock" ? "#00f59b" : "#64748b",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "all 0.2s",
+            fontFamily: "'Outfit', sans-serif"
+          }}
+        >
+          🔒 Quick PIN Unlock
+        </button>
+        <button 
+          type="button"
+          onClick={() => { setMode("google"); setError(""); }}
+          style={{
+            flex: 1,
+            padding: "10px 0",
+            borderRadius: 8,
+            border: "none",
+            background: mode === "google" ? "#1e293b" : "transparent",
+            color: mode === "google" ? "#00f59b" : "#64748b",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "all 0.2s",
+            fontFamily: "'Outfit', sans-serif"
+          }}
+        >
+          🚀 Register / New User
+        </button>
+      </div>
+
       {error && (
         <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 12, padding: "12px 16px", color: "#ef4444", fontSize: 13, marginBottom: 16, textAlign: "center" }}>
           ⚠️ {error}
         </div>
       )}
 
-      {/* Login Panels */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        
-        {/* Google Signup Mandate */}
+      {/* Conditionally Render Panel */}
+      {mode === "google" ? (
         <div style={S.card}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", textAlign: "center", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            New User / Register
+            Create New Account
           </div>
           <button 
             onClick={handleGoogleLogin} 
@@ -382,19 +423,11 @@ function AuthScreen({ onLoginSuccess }) {
             <span style={{ marginRight: 6 }}>🌐</span> 
             {loading ? "Authenticating..." : "Continue with Google"}
           </button>
-          <div style={{ fontSize: 11, color: "#64748b", textAlign: "center", marginTop: 8, lineHeight: 1.4 }}>
-            *Mandatory for first-time sign-ups to link your secure identity.
+          <div style={{ fontSize: 11, color: "#64748b", textAlign: "center", marginTop: 12, lineHeight: 1.4 }}>
+            *Mandatory for first-time sign-ups to link your secure identity. You will set your custom Username and PIN immediately after.
           </div>
         </div>
-
-        {/* Separator */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "4px 0" }}>
-          <div style={{ flex: 1, height: 1, background: "#1e293b" }} />
-          <span style={{ fontSize: 10, color: "#64748b", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>OR QUICK UNLOCK</span>
-          <div style={{ flex: 1, height: 1, background: "#1e293b" }} />
-        </div>
-
-        {/* PIN Unlock Keypad Form */}
+      ) : (
         <form onSubmit={handlePinUnlock} style={{ ...S.card, margin: 0 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
@@ -431,9 +464,12 @@ function AuthScreen({ onLoginSuccess }) {
             >
               🔓 {loading ? "Unlocking..." : "Unlock Dashboard"}
             </button>
+            <div style={{ fontSize: 11, color: "#64748b", textAlign: "center", marginTop: 4, lineHeight: 1.4 }}>
+              First-time users? Click the <strong>Register</strong> tab above to sign up first.
+            </div>
           </div>
         </form>
-      </div>
+      )}
 
     </div>
   );
