@@ -1712,12 +1712,26 @@ export default function App() {
     ];
 
     try {
-      await store.set("user-profile", { workouts: MOCK_WORKOUTS, unit });
-      setWorkouts(MOCK_WORKOUTS);
+      const seeded = MOCK_WORKOUTS.map(w => ({ ...w, isDemo: true }));
+      const updated = [...workouts, ...seeded];
+      await store.set("user-profile", { workouts: updated, unit });
+      setWorkouts(updated);
       setToast("Mock workouts seeded successfully!");
     } catch (e) {
       console.error("Seeding mock workouts failed", e);
       setToast("Failed to seed mock workouts.");
+    }
+  };
+
+  const handleRemoveSeedData = async () => {
+    try {
+      const updated = workouts.filter(w => !w.isDemo);
+      await store.set("user-profile", { workouts: updated, unit });
+      setWorkouts(updated);
+      setToast("Demo workouts removed!");
+    } catch (e) {
+      console.error("Removing mock workouts failed", e);
+      setToast("Failed to remove demo workouts.");
     }
   };
 
@@ -1771,7 +1785,14 @@ export default function App() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {workouts.length < 5 && (
+          {workouts.some(w => w.isDemo) ? (
+            <button 
+              onClick={handleRemoveSeedData}
+              style={{ ...S.btnOutline, fontSize: 11, padding: "5px 10px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", background: "#151c2c", borderColor: "#1e293b", color: "#ef4444", fontWeight: 700 }}
+            >
+              🗑️ Remove Demo
+            </button>
+          ) : (
             <button 
               onClick={handleSeedData}
               style={{ ...S.btnOutline, fontSize: 11, padding: "5px 10px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", background: "#151c2c", borderColor: "#1e293b", color: "#00f59b", fontWeight: 700 }}
