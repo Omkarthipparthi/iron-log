@@ -14,36 +14,45 @@ import {
   EmailAuthProvider
 } from "firebase/auth";
 
-// ─── Exercise Database ────────────────────────────────────────
 const EXERCISE_DB = {
   Chest: [
     "Barbell bench press","Incline barbell press","Dumbbell bench press","Incline dumbbell press",
     "Decline bench press","Dumbbell flyes","Cable flyes","Chest dips","Push-ups","Cable crossovers",
-    "Machine chest press","Pec deck"
+    "Machine chest press","Pec deck","Chest press on floor","Push-ups against wall"
   ],
   Back: [
     "Deadlift","Barbell row","Dumbbell row","Pull-ups","Chin-ups","Lat pulldown",
     "Seated cable row","T-bar row","Face pulls","Straight arm pulldown",
-    "Rack pulls","Pendlay row","Meadows row","Hyperextensions"
+    "Rack pulls","Pendlay row","Meadows row","Hyperextensions","Bent-over rows"
   ],
   Shoulders: [
     "Overhead press","Dumbbell shoulder press","Arnold press","Lateral raises",
     "Front raises","Rear delt flyes","Upright rows","Cable lateral raises",
-    "Face pulls","Shrugs"
+    "Face pulls","Shrugs","Shoulder press"
   ],
   Legs: [
     "Barbell squat","Front squat","Leg press","Romanian deadlift","Bulgarian split squat",
     "Lunges","Leg extension","Leg curl","Hip thrust","Calf raises",
-    "Goblet squat","Hack squat","Sumo deadlift","Step-ups","Sissy squat","Nordic curl"
+    "Goblet squat","Hack squat","Sumo deadlift","Step-ups","Sissy squat","Nordic curl",
+    "Bodyweight squats","Squats with dumbbells","Glute bridges",
+    "Reverse lunges","Wall sit","Donkey kicks","Fire hydrants"
   ],
   Arms: [
     "Barbell curl","Dumbbell curl","Hammer curl","Preacher curl","Cable curl",
     "Tricep pushdown","Skull crushers","Overhead tricep extension","Close grip bench press",
-    "Dips (tricep)","Concentration curl"
+    "Dips (tricep)","Concentration curl","Bicep curls"
   ],
   Core: [
     "Plank","Hanging leg raise","Cable crunch","Ab wheel rollout","Russian twist",
-    "Bicycle crunch","Dead bug","Pallof press","Woodchoppers"
+    "Bicycle crunch","Dead bug","Pallof press","Woodchoppers","Standing core twists"
+  ],
+  Cardio: [
+    "Brisk walking","Fast walking","Marching in place","Dancing","Jumping jacks",
+    "Running","Cycling","Elliptical","Rowing machine","Treadmill walk"
+  ],
+  Mobility: [
+    "Pilates breathing","Hip openers","Cat-cow stretch","Gentle stretching",
+    "Deep breathing","Yogic stretches","Foam rolling","Core activation"
   ]
 };
 
@@ -768,7 +777,7 @@ function PlateCalculator({ target, onClose, unit }) {
 }
 
 // ─── LOG WORKOUT ──────────────────────────────────────────────
-function LogWorkout({ workout, setWorkout, unit, onSave, savedWorkouts }) {
+function LogWorkout({ workout, setWorkout, unit, onSave, savedWorkouts, setToast }) {
   const w = workout;
   const [calcTarget, setCalcTarget] = useState(null);
   const [activeRestSeconds, setActiveRestSeconds] = useState(null);
@@ -879,6 +888,88 @@ function LogWorkout({ workout, setWorkout, unit, onSave, savedWorkouts }) {
               style={{ padding: "4px 8px", borderRadius: 6, background: "#0f1524", border: "1px solid #1e293b", color: "#00f59b", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
             >
               {s}s
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick-Start Templates */}
+      <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 10, marginBottom: 12, borderColor: "rgba(0, 245, 155, 0.15)", background: "linear-gradient(135deg, #111827 0%, #0b0f19 100%)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 13 }}>🏠</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 }}>Quick-Start At-Home Programs</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+          {[
+            {
+              name: "Mon - Lower & Core",
+              label: "🍗 Lower & Core",
+              type: "Strength",
+              group: "Legs",
+              exercises: ["Bodyweight squats", "Glute bridges", "Reverse lunges", "Wall sit", "Dead bug", "Brisk walking"]
+            },
+            {
+              name: "Tue - Upper & Cardio",
+              label: "💪 Upper & Cardio",
+              type: "Cardio",
+              group: "Chest",
+              exercises: ["Dumbbell shoulder press", "Bent-over rows", "Push-ups", "Bicep curls", "Marching in place"]
+            },
+            {
+              name: "Wed - Recovery & Mobility",
+              label: "🧘 Recovery & Mobility",
+              type: "Flexibility",
+              group: "Mobility",
+              exercises: ["Pilates breathing", "Hip openers", "Cat-cow stretch", "Gentle stretching", "Brisk walking"]
+            },
+            {
+              name: "Thu - Full Body Strength",
+              label: "🏋️ Full Body Strength",
+              type: "Strength",
+              group: "Legs",
+              exercises: ["Bodyweight squats", "Romanian deadlift", "Push-ups", "Overhead press", "Standing core twists"]
+            },
+            {
+              name: "Fri - Glutes, Core & Cardio",
+              label: "🍑 Glutes & Cardio",
+              type: "HIIT",
+              group: "Core",
+              exercises: ["Glute bridges", "Fire hydrants", "Donkey kicks", "Plank", "Fast walking"]
+            }
+          ].map(r => (
+            <button
+              key={r.name}
+              onClick={() => {
+                setWorkout(p => ({
+                  ...p,
+                  workoutType: r.type,
+                  muscleGroup: r.group,
+                  exercises: r.exercises.map(exName => ({
+                    id: Date.now() + Math.random(),
+                    name: exName,
+                    notes: "",
+                    sets: [{ reps: "", weight: "" }, { reps: "", weight: "" }, { reps: "", weight: "" }]
+                  }))
+                }));
+                if (setToast) {
+                  setToast(`Loaded: ${r.name}`);
+                }
+              }}
+              style={{
+                flexShrink: 0,
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: "#151c2c",
+                border: "1px solid #1e293b",
+                color: "#00f59b",
+                fontSize: 10,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.2s",
+                fontFamily: "'Outfit', sans-serif"
+              }}
+            >
+              {r.label}
             </button>
           ))}
         </div>
@@ -1844,7 +1935,7 @@ export default function App() {
       </div>
 
       {/* Content */}
-      {tab === "log" && <LogWorkout workout={workout} setWorkout={setWorkout} unit={unit} onSave={handleSave} savedWorkouts={workouts} />}
+      {tab === "log" && <LogWorkout workout={workout} setWorkout={setWorkout} unit={unit} onSave={handleSave} savedWorkouts={workouts} setToast={setToast} />}
       {tab === "history" && <History workouts={workouts} unit={unit} onDelete={handleDelete} />}
       {tab === "progress" && <Progress workouts={workouts} unit={unit} />}
       {tab === "library" && <Library onAddExercise={addExerciseFromLibrary} />}
