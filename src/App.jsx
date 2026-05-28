@@ -94,13 +94,13 @@ const emptyWorkout = () => ({
 const STORAGE_BACKEND = "firebase"; // "local" | "firebase" | "mongo"
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAgME6jFOQ8xUdn30M82XYfZGkJpD8n3W4",
-  authDomain: "workout-logger-7f8d6.firebaseapp.com",
-  projectId: "workout-logger-7f8d6",
-  storageBucket: "workout-logger-7f8d6.firebasestorage.app",
-  messagingSenderId: "457138242052",
-  appId: "1:457138242052:web:9725db2fd7c8e2aa142b51",
-  measurementId: "G-80SNV7GVGD"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
