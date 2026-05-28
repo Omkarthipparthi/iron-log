@@ -1,0 +1,40 @@
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #05070c;
+  color: #e2e8f0;
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Custom scrollbars for a premium developer/gaming look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00f59b;
+}
+
+/* Advanced keyframe animations */
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 5px rgba(0, 245, 155, 0.2); }
+  50% { box-shadow: 0 0 15px rgba(0, 245, 155, 0.4); }
+  100% { box-shadow: 0 0 5px rgba(0, 245, 155, 0.2); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
