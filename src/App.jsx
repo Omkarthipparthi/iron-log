@@ -3,6 +3,16 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContai
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
 import { getAnalytics } from "firebase/analytics";
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signInWithEmailAndPassword, 
+  onAuthStateChanged, 
+  signOut,
+  linkWithCredential,
+  EmailAuthProvider
+} from "firebase/auth";
 
 // ─── Exercise Database ────────────────────────────────────────
 const EXERCISE_DB = {
@@ -106,6 +116,8 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
+
 if (typeof window !== "undefined") {
   getAnalytics(app);
 }
@@ -147,28 +159,15 @@ const localAdapter = {
 
 // ── Firebase adapter ──
 const firebaseAdapter = {
-  async get(key) {
-    const snap = await getDoc(doc(db, "userData", key));
-    return snap.exists() ? snap.data().value : null;
+  async get(userId) {
+    const snap = await getDoc(doc(db, "users", userId));
+    return snap.exists() ? snap.data() : null;
   },
-  async set(key, value) {
-    await setDoc(doc(db, "userData", key), { value, updatedAt: new Date() });
+  async set(userId, value) {
+    await setDoc(doc(db, "users", userId), { ...value, updatedAt: new Date() }, { merge: true });
   },
-  async delete(key) {
-    await deleteDoc(doc(db, "userData", key));
-  }
-};
-
-// ── MongoDB adapter (placeholder) ──
-const mongoAdapter = {
-  async get(key) {
-    console.warn("MongoDB adapter not configured"); return null;
-  },
-  async set(key, value) {
-    console.warn("MongoDB adapter not configured");
-  },
-  async delete(key) {
-    console.warn("MongoDB adapter not configured");
+  async delete(userId) {
+    await deleteDoc(doc(db, "users", userId));
   }
 };
 
@@ -189,53 +188,55 @@ function withTimeout(promise, ms) {
 // ── Unified storage interface with automatic fallback ──
 const store = {
   async get(key) {
+    const user = auth.currentUser;
+    if (!user) return null;
+    
     if (STORAGE_BACKEND === "firebase" && !storageFallbackActive) {
       try {
-        return await withTimeout(firebaseAdapter.get(key), 1500);
+        return await withTimeout(firebaseAdapter.get(user.uid), 1500);
       } catch (e) {
         console.error("Firebase load failed or timed out, falling back to LocalStorage", e);
         storageFallbackActive = true;
       }
     }
-    return await localAdapter.get(key);
+    return await localAdapter.get(`${user.uid}_${key}`);
   },
   async set(key, value) {
+    const user = auth.currentUser;
+    if (!user) return;
+
     if (STORAGE_BACKEND === "firebase" && !storageFallbackActive) {
       try {
-        await withTimeout(firebaseAdapter.set(key, value), 1500);
+        await withTimeout(firebaseAdapter.set(user.uid, value), 1500);
         return;
       } catch (e) {
         console.error("Firebase save failed or timed out, falling back to LocalStorage", e);
         storageFallbackActive = true;
       }
     }
-    await localAdapter.set(key, value);
+    await localAdapter.set(`${user.uid}_${key}`, value);
   },
   async delete(key) {
+    const user = auth.currentUser;
+    if (!user) return;
+
     if (STORAGE_BACKEND === "firebase" && !storageFallbackActive) {
       try {
-        await withTimeout(firebaseAdapter.delete(key), 1500);
+        await withTimeout(firebaseAdapter.delete(user.uid), 1500);
         return;
       } catch (e) {
         console.error("Firebase delete failed or timed out, falling back to LocalStorage", e);
         storageFallbackActive = true;
       }
     }
-    await localAdapter.delete(key);
+    await localAdapter.delete(`${user.uid}_${key}`);
   }
 };
-
-async function loadWorkouts() { return (await store.get("workouts-data")) || []; }
-async function saveWorkouts(w) { await store.set("workouts-data", w); }
-async function loadUnit() { return (await store.get("unit-pref")) || "kg"; }
-async function saveUnit(u) { await store.set("unit-pref", u); }
 
 // ─── Play Synthesized Rest Sound ────────────────────────────────
 const playRestCompleteSound = () => {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    // Play two notes (bip-boop)
     const playTone = (freq, start, duration) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -248,9 +249,8 @@ const playRestCompleteSound = () => {
       osc.start(ctx.currentTime + start);
       osc.stop(ctx.currentTime + start + duration);
     };
-
-    playTone(880, 0, 0.15); // A5 note
-    playTone(1320, 0.15, 0.3); // E6 note
+    playTone(880, 0, 0.15); 
+    playTone(1320, 0.15, 0.3);
   } catch (e) {
     console.error("Web Audio Sound synthesis failed", e);
   }
@@ -289,7 +289,7 @@ const S = {
   histItem: { padding: "14px 0", borderBottom: "1px solid #1e293b", cursor: "pointer" },
   searchBox: { width: "100%", padding: "11px 12px 11px 38px", border: "1px solid #1e293b", borderRadius: 12, fontSize: 14, background: "#151c2c", outline: "none", boxSizing: "border-box", color: "#ffffff", fontFamily: "'Outfit', sans-serif", transition: "all .2s" },
   muscleCard: (active) => ({ padding: "12px 16px", borderRadius: 12, border: active ? "1.5px solid #00f59b" : "1px solid #1e293b", background: active ? "rgba(0, 245, 155, 0.05)" : "#151c2c", cursor: "pointer", transition: "all .2s", boxShadow: active ? "0 0 12px rgba(0, 245, 155, 0.1)" : "none" }),
-  toast: { position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)", background: "#00f59b", color: "#05070c", padding: "12px 28px", borderRadius: 12, fontSize: 13, fontWeight: 700, zIndex: 999, boxShadow: "0 8px 30px rgba(0, 245, 155, 0.3)", animation: "fadeIn .3s cubic-bezier(0.16, 1, 0.3, 1)", letterSpacing: 0.3 }
+  toast: { position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)", background: "#00f59b", color: "#05070c", padding: "12px 28px", borderRadius: 12, fontSize: 13, fontWeight: 700, zIndex: 1000, boxShadow: "0 8px 30px rgba(0, 245, 155, 0.3)", animation: "fadeIn .3s cubic-bezier(0.16, 1, 0.3, 1)", letterSpacing: 0.3 }
 };
 
 // ─── Components ───────────────────────────────────────────────
@@ -297,6 +297,272 @@ const S = {
 function Toast({ msg, onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2000); return () => clearTimeout(t); }, []);
   return <div style={S.toast}>{msg}</div>;
+}
+
+// ─── AUTH SCREEN ──────────────────────────────────────────────
+function AuthScreen({ onLoginSuccess }) {
+  const [username, setUsername] = useState("");
+  const [pin, setPin] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError("");
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      // Main app useEffect will detect user state change
+    } catch (e) {
+      console.error(e);
+      setError("Google authentication failed.");
+      setLoading(false);
+    }
+  };
+
+  const handlePinUnlock = async (e) => {
+    e.preventDefault();
+    if (!username.trim() || !pin) {
+      setError("Enter a valid username and PIN.");
+      return;
+    }
+    if (pin.length < 4) {
+      setError("PIN must be at least 4 digits.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    const virtualEmail = `${username.trim().toLowerCase()}@ironlog.app`;
+    const virtualPassword = `${pin}_ironlog_pin_secure`;
+
+    try {
+      await signInWithEmailAndPassword(auth, virtualEmail, virtualPassword);
+    } catch (e) {
+      console.error(e);
+      setError("Invalid username or PIN. First-time users must sign up with Google first.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ ...S.page, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: "80vh", paddingTop: 40 }}>
+      
+      {/* Visual Title / Brand */}
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ fontSize: 60, marginBottom: 8, display: "inline-block", animation: "pulseGlow 2s infinite", borderRadius: "50%", padding: 10 }}>🏋️</div>
+        <h2 style={{ fontSize: 32, fontWeight: 700, margin: 0, letterSpacing: -0.5, color: "#fff" }}>
+          IRON <span style={S.accentLogo}>LOG</span>
+        </h2>
+        <p style={{ color: "#64748b", fontSize: 13, marginTop: 4, letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700 }}>
+          Premium Lifter Dashboard
+        </p>
+      </div>
+
+      {error && (
+        <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 12, padding: "12px 16px", color: "#ef4444", fontSize: 13, marginBottom: 16, textAlign: "center" }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* Login Panels */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        
+        {/* Google Signup Mandate */}
+        <div style={S.card}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", textAlign: "center", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            New User / Register
+          </div>
+          <button 
+            onClick={handleGoogleLogin} 
+            disabled={loading}
+            style={{ ...S.btn, ...S.btnPrimary, width: "100%", height: 48, position: "relative" }}
+          >
+            <span style={{ marginRight: 6 }}>🌐</span> 
+            {loading ? "Authenticating..." : "Continue with Google"}
+          </button>
+          <div style={{ fontSize: 11, color: "#64748b", textAlign: "center", marginTop: 8, lineHeight: 1.4 }}>
+            *Mandatory for first-time sign-ups to link your secure identity.
+          </div>
+        </div>
+
+        {/* Separator */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "4px 0" }}>
+          <div style={{ flex: 1, height: 1, background: "#1e293b" }} />
+          <span style={{ fontSize: 10, color: "#64748b", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>OR QUICK UNLOCK</span>
+          <div style={{ flex: 1, height: 1, background: "#1e293b" }} />
+        </div>
+
+        {/* PIN Unlock Keypad Form */}
+        <form onSubmit={handlePinUnlock} style={{ ...S.card, margin: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={S.label}>Username</label>
+              <input 
+                type="text" 
+                placeholder="Enter username"
+                value={username}
+                onChange={e => setUsername(e.target.value.toLowerCase().replace(/\s+/g, ""))}
+                style={S.input}
+                disabled={loading}
+                autoCapitalize="none"
+              />
+            </div>
+            <div>
+              <label style={S.label}>Numeric PIN</label>
+              <input 
+                type="password" 
+                pattern="[0-9]*" 
+                inputMode="numeric"
+                maxLength="6"
+                placeholder="••••"
+                value={pin}
+                onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+                style={{ ...S.input, letterSpacing: pin ? 6 : 0, textAlign: pin ? "center" : "left", fontSize: 16 }}
+                disabled={loading}
+              />
+            </div>
+            
+            <button 
+              type="submit" 
+              disabled={loading}
+              style={{ ...S.btn, ...S.btnOutline, width: "100%", height: 48, borderColor: "#00f59b", color: "#00f59b", textShadow: "0 0 6px rgba(0, 245, 155, 0.2)", marginTop: 8 }}
+            >
+              🔓 {loading ? "Unlocking..." : "Unlock Dashboard"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  );
+}
+
+// ─── FIRST TIME ONBOARDING MODAL ──────────────────────────────
+function OnboardingModal({ user, onComplete }) {
+  const [username, setUsername] = useState("");
+  const [pin, setPin] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    const cleanUsername = username.trim().toLowerCase().replace(/\s+/g, "");
+    if (!cleanUsername || cleanUsername.length < 3) {
+      setError("Username must be at least 3 characters.");
+      return;
+    }
+    if (!pin || pin.length < 4 || pin.length > 6) {
+      setError("PIN must be a 4 to 6 digit number.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      // 1. Verify username uniqueness in Firestore
+      const userRef = doc(db, "usernames", cleanUsername);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        setError("Username is already taken. Try a different one.");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Link Email/Password credential to the Google Account!
+      const virtualEmail = `${cleanUsername}@ironlog.app`;
+      const virtualPassword = `${pin}_ironlog_pin_secure`;
+      const credential = EmailAuthProvider.credential(virtualEmail, virtualPassword);
+
+      // Link to Google Account
+      await linkWithCredential(user, credential);
+
+      // 3. Register username lookup
+      await setDoc(userRef, { uid: user.uid });
+
+      // 4. Migrate local workouts if they exist in localStorage under default keys
+      const localW = await localAdapter.get("workouts-data") || [];
+      const localU = await localAdapter.get("unit-pref") || "kg";
+
+      // 5. Initialize user profile document
+      await setDoc(doc(db, "users", user.uid), {
+        username: cleanUsername,
+        workouts: localW,
+        unit: localU
+      });
+
+      // 6. Delete old local keys to clean up storage
+      await localAdapter.delete("workouts-data");
+      await localAdapter.delete("unit-pref");
+
+      onComplete();
+    } catch (e) {
+      console.error(e);
+      setError("Registration failed. Please check your connection.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(5, 7, 12, 0.9)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <form onSubmit={handleRegister} style={{ ...S.card, width: 340, padding: 24, background: "#0f1524", borderColor: "#00f59b", animation: "fadeIn .3s", boxShadow: "0 10px 40px rgba(0, 245, 155, 0.2)" }}>
+        
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <span style={{ fontSize: 36, display: "block", marginBottom: 6 }}>🌱</span>
+          <h3 style={{ margin: "0 0 4px", color: "#ffffff", fontSize: 18 }}>SECURE QUICK-LOG</h3>
+          <p style={{ color: "#64748b", fontSize: 12, lineHeight: 1.4 }}>
+            Link a unique username and a numeric PIN to unlock your dashboard quickly on the gym floor.
+          </p>
+        </div>
+
+        {error && (
+          <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 10, padding: 10, color: "#ef4444", fontSize: 12, marginBottom: 12, textAlign: "center" }}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 18 }}>
+          <div>
+            <label style={S.label}>Create Username</label>
+            <input 
+              type="text" 
+              placeholder="e.g. iron_beast"
+              value={username}
+              onChange={e => setUsername(e.target.value.toLowerCase().replace(/\s+/g, ""))}
+              style={S.input}
+              disabled={loading}
+              autoCapitalize="none"
+            />
+          </div>
+          <div>
+            <label style={S.label}>Choose Numeric PIN (4-6 digits)</label>
+            <input 
+              type="password" 
+              pattern="[0-9]*" 
+              inputMode="numeric"
+              maxLength="6"
+              placeholder="e.g. 1234"
+              value={pin}
+              onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+              style={{ ...S.input, letterSpacing: pin ? 6 : 0, textAlign: pin ? "center" : "left", fontSize: 16 }}
+              disabled={loading}
+            />
+          </div>
+        </div>
+
+        <button 
+          type="submit" 
+          disabled={loading}
+          style={{ ...S.btn, ...S.btnPrimary, width: "100%", height: 44 }}
+        >
+          {loading ? "Registering..." : "Complete Setup"}
+        </button>
+      </form>
+    </div>
+  );
 }
 
 // ─── REST TIMER DRAW ER ────────────────────────────────────────
@@ -358,7 +624,6 @@ function PlateCalculator({ target, onClose, unit }) {
   const getPlatesPerSide = () => {
     if (targetWeight <= barWeight) return [];
     
-    // Available plates per side
     const kgPlates = [25, 20, 15, 10, 5, 2.5, 1.25];
     const lbsPlates = [45, 35, 25, 10, 5, 2.5];
     const plates = unit === "lbs" ? lbsPlates : kgPlates;
@@ -378,14 +643,13 @@ function PlateCalculator({ target, onClose, unit }) {
 
   const plates = getPlatesPerSide();
 
-  // Color mappings for standard plates
   const getPlateColor = (val) => {
     if (unit === "kg") {
-      if (val >= 25) return "#ef4444"; // Red
-      if (val >= 20) return "#3b82f6"; // Blue
-      if (val >= 15) return "#eab308"; // Yellow
-      if (val >= 10) return "#22c55e"; // Green
-      return "#64748b"; // Silver/Grey
+      if (val >= 25) return "#ef4444"; 
+      if (val >= 20) return "#3b82f6"; 
+      if (val >= 15) return "#eab308"; 
+      if (val >= 10) return "#22c55e"; 
+      return "#64748b"; 
     } else {
       if (val >= 45) return "#ef4444";
       if (val >= 35) return "#3b82f6";
@@ -422,17 +686,14 @@ function PlateCalculator({ target, onClose, unit }) {
         {/* Plates stack representation */}
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 3, background: "#0b0f19", height: 110, borderRadius: 10, border: "1px solid #1e293b", position: "relative", overflow: "hidden", marginBottom: 16 }}>
           
-          {/* Barbell sleeve center */}
           <div style={{ position: "absolute", width: "100%", height: 6, background: "#334155", top: "50%", transform: "translateY(-50%)", zIndex: 1 }} />
-          
-          {/* Barbell collar */}
           <div style={{ width: 10, height: 44, background: "#64748b", border: "1px solid #475569", borderRadius: 2, zIndex: 2, marginRight: 8 }} />
 
           {plates.length > 0 ? (
             <div style={{ display: "flex", gap: 2, zIndex: 2, alignItems: "center" }}>
               {plates.map((plate, index) => {
-                const height = 40 + Math.min(plate * 1.5, 45); // Scale size based on plate
-                const width = Math.max(10, 16 - index); // Make heavier plates wider
+                const height = 40 + Math.min(plate * 1.5, 45); 
+                const width = Math.max(10, 16 - index); 
                 return (
                   <div 
                     key={index}
@@ -461,7 +722,6 @@ function PlateCalculator({ target, onClose, unit }) {
             <div style={{ color: "#475569", fontSize: 12, zIndex: 2 }}>Only bar weight required</div>
           )}
 
-          {/* Sleeve tip */}
           <div style={{ width: 6, height: 14, background: "#475569", zIndex: 2, marginLeft: 6, borderRadius: "0 2px 2px 0" }} />
         </div>
 
@@ -477,7 +737,6 @@ function LogWorkout({ workout, setWorkout, unit, onSave, savedWorkouts }) {
   const [calcTarget, setCalcTarget] = useState(null);
   const [activeRestSeconds, setActiveRestSeconds] = useState(null);
 
-  // Stopwatch Ref & state
   const [elapsed, setElapsed] = useState(0);
   const [timerRunning, setTimerRunning] = useState(true);
 
@@ -557,15 +816,12 @@ function LogWorkout({ workout, setWorkout, unit, onSave, savedWorkouts }) {
   return (
     <div style={S.page}>
       
-      {/* Rest Timer Overlay */}
       {activeRestSeconds && <RestTimer triggerSeconds={activeRestSeconds} onCancel={() => setActiveRestSeconds(null)} />}
-
-      {/* Plate Calculator Overlay */}
       {calcTarget && <PlateCalculator target={calcTarget} unit={unit} onClose={() => setCalcTarget(null)} />}
 
       {/* Stopwatch & Rest Preset Bar */}
       <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-        <div style={{ ...S.card, flex: 1, margin: 0, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderColor: "rgba(0, 245, 155, 0.2)" }}>
+        <div style={{ ...S.card, flex: 1, margin: 0, padding: "10px 16px", display: "flex", alignItems: "center", justifySpace: "space-between", justifyContent: "space-between", borderColor: "rgba(0, 245, 155, 0.2)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 16 }}>⏱️</span>
             <span style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: "#00f59b", textShadow: "0 0 6px rgba(0, 245, 155, 0.3)" }}>{formatElapsed()}</span>
@@ -762,9 +1018,7 @@ function History({ workouts, unit, onDelete }) {
   };
 
   const handleCopySummary = (w, e) => {
-    e.stopPropagation(); // Avoid folding the card
-    
-    // Create text summary
+    e.stopPropagation(); 
     const wDuration = duration(w);
     let text = `🏋️ IRON LOG: ${formatDate(w.date)} (${w.workoutType})\n`;
     text += `💪 Target: ${w.muscleGroup} | Energy: ${w.energy}/5${wDuration ? ` | Time: ${wDuration}` : ""}\n`;
@@ -1068,7 +1322,6 @@ function OneRepMaxDashboard({ unit }) {
     const w = Number(weight) || 0;
     const r = Number(reps) || 0;
     if (w <= 0 || r <= 0) return { epley: 0, brzycki: 0, avg: 0 };
-    
     if (r === 1) return { epley: w, brzycki: w, avg: w };
 
     const epley = w * (1 + r / 30);
@@ -1095,44 +1348,26 @@ function OneRepMaxDashboard({ unit }) {
   return (
     <div style={S.page}>
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: "#fff" }}>1-Rep Max Calculator</div>
-      
-      {/* Inputs */}
       <div style={S.card}>
         <div style={{ ...S.row, marginBottom: 0 }}>
           <div style={S.col}>
             <label style={S.label}>Weight Lifted ({unit})</label>
-            <input 
-              type="number" 
-              placeholder="e.g. 100"
-              value={weight} 
-              onChange={e => setWeight(e.target.value)} 
-              style={S.input} 
-            />
+            <input type="number" placeholder="e.g. 100" value={weight} onChange={e => setWeight(e.target.value)} style={S.input} />
           </div>
           <div style={S.col}>
             <label style={S.label}>Reps Done</label>
-            <input 
-              type="number" 
-              placeholder="e.g. 5"
-              value={reps} 
-              onChange={e => setReps(e.target.value)} 
-              style={S.input} 
-              min="1"
-              max="30"
-            />
+            <input type="number" placeholder="e.g. 5" value={reps} onChange={e => setReps(e.target.value)} style={S.input} min="1" max="30" />
           </div>
         </div>
       </div>
 
       {max1RM > 0 ? (
         <>
-          {/* Estimated Max Card */}
           <div style={{ ...S.card, textAlign: "center", background: "rgba(0, 245, 155, 0.05)", borderColor: "#00f59b", boxShadow: "0 0 15px rgba(0, 245, 155, 0.1)" }}>
             <div style={{ fontSize: 13, color: "#64748b", textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.8 }}>Estimated 1-Rep Max</div>
             <div style={{ fontSize: 44, fontWeight: 700, color: "#00f59b", margin: "8px 0", textShadow: "0 0 10px rgba(0, 245, 155, 0.4)" }}>
               {Math.round(max1RM)} <span style={{ fontSize: 20 }}>{unit}</span>
             </div>
-            
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, background: "#0f1524", padding: 10, borderRadius: 10, marginTop: 10, border: "1px solid #1e293b" }}>
               <div>
                 <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700 }}>EPLEY FORMULA</div>
@@ -1145,7 +1380,6 @@ function OneRepMaxDashboard({ unit }) {
             </div>
           </div>
 
-          {/* Training Percentage Splits */}
           <div style={S.card}>
             <div style={{ ...S.cardTitle, color: "#ffffff", borderBottom: "1px solid #1e293b", paddingBottom: 8, marginBottom: 12 }}>
               TRAINING LOAD TARGETS
@@ -1183,6 +1417,10 @@ function OneRepMaxDashboard({ unit }) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [username, setUsername] = useState("");
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
   const [tab, setTab] = useState("log");
   const [unit, setUnit] = useState("kg");
   const [workout, setWorkout] = useState(emptyWorkout());
@@ -1190,23 +1428,59 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [loaded, setLoaded] = useState(false);
 
-  // Load data on mount
+  // Monitor Authentication Session
   useEffect(() => {
-    (async () => {
-      const [saved, u] = await Promise.all([loadWorkouts(), loadUnit()]);
-      setWorkouts(saved);
-      setUnit(u);
-      setLoaded(true);
-      if (storageFallbackActive) {
-        setToast("Firebase unreachable. Active local fallback storage.");
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        // Authenticated: check if user document already exists in Firestore
+        setLoaded(false);
+        try {
+          const snap = await getDoc(doc(db, "users", u.uid));
+          if (snap.exists()) {
+            // Returning User: Load cloud workouts and settings
+            const data = snap.data();
+            setWorkouts(data.workouts || []);
+            setUnit(data.unit || "kg");
+            setUsername(data.username || "lifter");
+            setShowOnboarding(false);
+          } else {
+            // New Google Signup: Show the mandatory onboarding modal to link Username/PIN
+            setShowOnboarding(true);
+          }
+        } catch (e) {
+          console.error("Firestore initialization failed", e);
+          // Fallback to local storage
+          const localW = await localAdapter.get(`${u.uid}_workouts-data`) || [];
+          const localU = await localAdapter.get(`${u.uid}_unit-pref`) || "kg";
+          setWorkouts(localW);
+          setUnit(localU);
+        }
+        setLoaded(true);
+      } else {
+        // Unauthenticated
+        setWorkouts([]);
+        setUsername("");
+        setShowOnboarding(false);
+        setLoaded(true);
       }
-    })();
+    });
+    return () => unsubscribe();
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setToast("Logged out successfully");
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+  };
 
   const toggleUnit = async () => {
     const next = unit === "kg" ? "lbs" : "kg";
     setUnit(next);
-    await saveUnit(next);
+    await store.set("user-profile", { workouts, unit: next });
   };
 
   const handleSave = async () => {
@@ -1218,7 +1492,9 @@ export default function App() {
     const w = { ...workout, unit, finishTime: workout.finishTime || nowTime() };
     const updated = [...workouts, w];
     setWorkouts(updated);
-    await saveWorkouts(updated);
+    
+    await store.set("user-profile", { workouts: updated, unit });
+    
     setWorkout(emptyWorkout());
     setToast("Workout saved!");
   };
@@ -1226,7 +1502,7 @@ export default function App() {
   const handleDelete = async (id) => {
     const updated = workouts.filter(w => w.id !== id);
     setWorkouts(updated);
-    await saveWorkouts(updated);
+    await store.set("user-profile", { workouts: updated, unit });
     setToast("Workout deleted");
   };
 
@@ -1242,7 +1518,7 @@ export default function App() {
   const handleSeedData = async () => {
     const MOCK_WORKOUTS = [
       {
-        id: Date.now() - 24 * 60 * 60 * 1000 * 20, // 20 days ago
+        id: Date.now() - 24 * 60 * 60 * 1000 * 20, 
         date: new Date(Date.now() - 24 * 60 * 60 * 1000 * 20).toISOString().slice(0, 10),
         day: (dayOfWeek() + 1) % 7,
         startTime: "18:00",
@@ -1274,7 +1550,7 @@ export default function App() {
         ]
       },
       {
-        id: Date.now() - 24 * 60 * 60 * 1000 * 16, // 16 days ago
+        id: Date.now() - 24 * 60 * 60 * 1000 * 16, 
         date: new Date(Date.now() - 24 * 60 * 60 * 1000 * 16).toISOString().slice(0, 10),
         day: (dayOfWeek() + 5) % 7,
         startTime: "08:00",
@@ -1306,7 +1582,7 @@ export default function App() {
         ]
       },
       {
-        id: Date.now() - 24 * 60 * 60 * 1000 * 12, // 12 days ago
+        id: Date.now() - 24 * 60 * 60 * 1000 * 12, 
         date: new Date(Date.now() - 24 * 60 * 60 * 1000 * 12).toISOString().slice(0, 10),
         day: (dayOfWeek() + 2) % 7,
         startTime: "17:30",
@@ -1338,7 +1614,7 @@ export default function App() {
         ]
       },
       {
-        id: Date.now() - 24 * 60 * 60 * 1000 * 8, // 8 days ago
+        id: Date.now() - 24 * 60 * 60 * 1000 * 8, 
         date: new Date(Date.now() - 24 * 60 * 60 * 1000 * 8).toISOString().slice(0, 10),
         day: (dayOfWeek() + 6) % 7,
         startTime: "11:00",
@@ -1370,7 +1646,7 @@ export default function App() {
         ]
       },
       {
-        id: Date.now() - 24 * 60 * 60 * 1000 * 4, // 4 days ago
+        id: Date.now() - 24 * 60 * 60 * 1000 * 4, 
         date: new Date(Date.now() - 24 * 60 * 60 * 1000 * 4).toISOString().slice(0, 10),
         day: (dayOfWeek() + 3) % 7,
         startTime: "19:00",
@@ -1402,7 +1678,7 @@ export default function App() {
         ]
       },
       {
-        id: Date.now() - 24 * 60 * 60 * 1000 * 1, // 1 day ago
+        id: Date.now() - 24 * 60 * 60 * 1000 * 1, 
         date: new Date(Date.now() - 24 * 60 * 60 * 1000 * 1).toISOString().slice(0, 10),
         day: (dayOfWeek() + 6) % 7,
         startTime: "18:15",
@@ -1436,7 +1712,7 @@ export default function App() {
     ];
 
     try {
-      await saveWorkouts(MOCK_WORKOUTS);
+      await store.set("user-profile", { workouts: MOCK_WORKOUTS, unit });
       setWorkouts(MOCK_WORKOUTS);
       setToast("Mock workouts seeded successfully!");
     } catch (e) {
@@ -1451,16 +1727,49 @@ export default function App() {
     </div>
   );
 
+  // If not authenticated, render login portal
+  if (!user) {
+    return (
+      <div style={S.app}>
+        {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+        <AuthScreen onLoginSuccess={() => setToast("Unlocked successfully!")} />
+      </div>
+    );
+  }
+
   return (
     <div style={S.app}>
       {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
       
+      {/* Onboarding Modal Overlay */}
+      {showOnboarding && (
+        <OnboardingModal 
+          user={user} 
+          onComplete={async () => {
+            const snap = await getDoc(doc(db, "users", user.uid));
+            const data = snap.data();
+            setWorkouts(data.workouts || []);
+            setUnit(data.unit || "kg");
+            setUsername(data.username || "lifter");
+            setShowOnboarding(false);
+            setToast("Profile created successfully!");
+          }} 
+        />
+      )}
+
       {/* Header */}
       <div style={S.header}>
-        <div style={S.logo}>
-          <span style={{ marginRight: 8 }}>🏋️</span>
-          IRON <span style={S.accentLogo}>LOG</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={S.logo}>
+            <span style={{ marginRight: 6 }}>🏋️</span>
+            IRON <span style={S.accentLogo}>LOG</span>
+          </div>
+          <div style={{ fontSize: 10, color: "#64748b", display: "flex", alignItems: "center", gap: 4, fontWeight: 700, textTransform: "uppercase" }}>
+            <span style={{ color: "#00f59b" }}>👤</span> {username}
+            <span onClick={handleLogout} style={{ cursor: "pointer", color: "#ef4444", marginLeft: 8 }} title="Sign Out">LOGOUT</span>
+          </div>
         </div>
+
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {workouts.length < 5 && (
             <button 
