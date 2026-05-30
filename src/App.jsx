@@ -1116,9 +1116,10 @@ function LogWorkout({ workout, setWorkout, unit, onSave, savedWorkouts, setToast
 }
 
 // ─── HISTORY ──────────────────────────────────────────────────
-function History({ workouts, unit, onDelete }) {
+function History({ workouts, unit, onDelete, onCombine }) {
   const [expanded, setExpanded] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
   const sorted = [...workouts].sort((a, b) => b.date.localeCompare(a.date));
 
   if (!sorted.length) return (
@@ -1165,17 +1166,152 @@ function History({ workouts, unit, onDelete }) {
     });
   };
 
+  const toggleSelect = (id, e) => {
+    e.stopPropagation();
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleCombineClick = () => {
+    if (selectedIds.length < 2) return;
+    
+    // Find workouts to combine and sort by date descending (newest first)
+    const toCombine = workouts.filter(w => selectedIds.includes(w.id))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    const base = toCombine[0]; // Newest workout provides base metadata
+    
+    const combinedExercises = [];
+    
+    toCombine.forEach(w => {
+      w.exercises.forEach(ex => {
+        const found = combinedExercises.find(x => x.name.toLowerCase().trim() === ex.name.toLowerCase().trim());
+        if (found) {
+          // Merge sets and notes
+          found.sets = [...found.sets, ...ex.sets];
+          if (ex.notes && !found.notes.includes(ex.notes)) {
+            found.notes = found.notes ? `${found.notes}\n${ex.notes}` : ex.notes;
+          }
+        } else {
+          // Clone exercise structure
+          combinedExercises.push({
+            id: ex.id || Math.random(),
+            name: ex.name,
+            notes: ex.notes || "",
+            sets: [...ex.sets]
+          });
+        }
+      });
+    });
+
+    // Calculate time bounds
+    const startTimes = toCombine.map(w => w.startTime).filter(Boolean);
+    const finishTimes = toCombine.map(w => w.finishTime).filter(Boolean);
+    const earliestStart = startTimes.length ? startTimes.sort()[0] : base.startTime;
+    const latestFinish = finishTimes.length ? finishTimes.sort().reverse()[0] : base.finishTime;
+
+    // Average energy
+    const energies = toCombine.map(w => w.energy || 3);
+    const avgEnergy = Math.round(energies.reduce((a, b) => a + b, 0) / energies.length);
+
+    const mergedWorkout = {
+      id: base.id, // Retain ID of newest base workout
+      date: base.date,
+      day: base.day,
+      startTime: earliestStart,
+      finishTime: latestFinish,
+      workoutType: base.workoutType,
+      muscleGroup: base.muscleGroup,
+      energy: avgEnergy,
+      unit: base.unit || "kg",
+      exercises: combinedExercises
+    };
+
+    onCombine(mergedWorkout, selectedIds);
+    setSelectedIds([]);
+  };
+
   return (
     <div style={S.page}>
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: "#fff" }}>Workout History</div>
+      
+      {/* Floating Action Bar for Combining Workouts */}
+      {selectedIds.length > 0 && (
+        <div style={{
+          background: "linear-gradient(135deg, #111827 0%, #0b0f19 100%)",
+          border: "1.5px solid #00f59b",
+          boxShadow: "0 0 20px rgba(0, 245, 155, 0.2)",
+          borderRadius: 16,
+          padding: "12px 18px",
+          marginBottom: 16,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          animation: "pulseGlow 2s infinite"
+        }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Combine Mode Active</div>
+            <div style={{ fontSize: 11, color: "#64748b" }}>Selected: {selectedIds.length} workout{selectedIds.length > 1 ? "s" : ""}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button 
+              onClick={() => setSelectedIds([])}
+              style={{ ...S.btn, borderColor: "#ef4444", color: "#ef4444", background: "none", fontSize: 11, padding: "6px 12px", border: "1px solid #ef4444" }}
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleCombineClick}
+              disabled={selectedIds.length < 2}
+              style={{ 
+                ...S.btn, 
+                background: selectedIds.length >= 2 ? "#00f59b" : "#1e293b", 
+                color: selectedIds.length >= 2 ? "#05070c" : "#64748b",
+                fontSize: 11, 
+                padding: "6px 14px",
+                fontWeight: 700,
+                cursor: selectedIds.length >= 2 ? "pointer" : "not-allowed"
+              }}
+            >
+              🤝 Combine Selected
+            </button>
+          </div>
+        </div>
+      )}
+
       {sorted.map((w, i) => (
         <div key={w.id} style={S.card}>
           <div style={{ ...S.histItem, borderBottom: expanded === i ? "1px solid #1e293b" : "none", padding: "0 0 12px" }} onClick={() => setExpanded(expanded === i ? null : i)}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{formatDate(w.date)}</div>
-                <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
-                  {w.muscleGroup}{duration(w) ? ` · ${duration(w)}` : ""} · {w.exercises.length} exercise{w.exercises.length > 1 ? "s" : ""}
+              <div style={{ display: "flex", alignItems: "center" }}>
+                {/* Custom Checkbox */}
+                <div 
+                  onClick={(e) => toggleSelect(w.id, e)}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    border: `2px solid ${selectedIds.includes(w.id) ? "#00f59b" : "#475569"}`,
+                    background: selectedIds.includes(w.id) ? "#00f59b" : "transparent",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 12,
+                    cursor: "pointer",
+                    color: "#05070c",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    transition: "all 0.2s"
+                  }}
+                >
+                  {selectedIds.includes(w.id) && "✓"}
+                </div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{formatDate(w.date)}</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
+                    {w.muscleGroup}{duration(w) ? ` · ${duration(w)}` : ""} · {w.exercises.length} exercise{w.exercises.length > 1 ? "s" : ""}
+                  </div>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1571,6 +1707,123 @@ export default function App() {
             setUnit(data.unit || "kg");
             setUsername(data.username || "lifter");
             setShowOnboarding(false);
+            
+            // --- ONE-TIME AUTO ALIGNMENT FOR USER "omki" ---
+            if (data.username === "omki") {
+              let changed = false;
+              let currentW = data.workouts || [];
+              
+              if (!currentW.some(w => w.date === "2026-05-26")) {
+                const may26Workout = {
+                  id: 1780000000000 + Math.floor(Math.random() * 1000000),
+                  date: "2026-05-26",
+                  day: 1, // Tuesday
+                  startTime: "19:00",
+                  finishTime: "20:00",
+                  workoutType: "Strength",
+                  muscleGroup: "Back",
+                  energy: 4,
+                  unit: "lbs",
+                  exercises: [
+                    {
+                      id: Math.random(),
+                      name: "Lat pull downs",
+                      notes: "",
+                      sets: [
+                        { reps: "8", weight: "55" },
+                        { reps: "8", weight: "70" },
+                        { reps: "8", weight: "85" },
+                        { reps: "2", weight: "100" }
+                      ]
+                    },
+                    {
+                      id: Math.random(),
+                      name: "Cable rows v grip",
+                      notes: "",
+                      sets: [
+                        { reps: "8", weight: "70" },
+                        { reps: "8", weight: "85" },
+                        { reps: "5", weight: "100" }
+                      ]
+                    },
+                    {
+                      id: Math.random(),
+                      name: "Cable back pulldowns",
+                      notes: "",
+                      sets: [
+                        { reps: "10", weight: "15" },
+                        { reps: "8", weight: "25" },
+                        { reps: "8", weight: "25" }
+                      ]
+                    }
+                  ]
+                };
+                currentW = [...currentW, may26Workout];
+                changed = true;
+              }
+              
+              const targetW = currentW.filter(w => w.date === "2026-05-29");
+              if (targetW.length >= 2) {
+                targetW.sort((a, b) => b.id - a.id);
+                const base = targetW[0];
+                
+                const combinedExercises = [];
+                targetW.forEach(w => {
+                  w.exercises.forEach(ex => {
+                    const found = combinedExercises.find(x => x.name.toLowerCase().trim() === ex.name.toLowerCase().trim());
+                    if (found) {
+                      found.sets = [...found.sets, ...ex.sets];
+                      if (ex.notes && !found.notes.includes(ex.notes)) {
+                        found.notes = found.notes ? `${found.notes}\n${ex.notes}` : ex.notes;
+                      }
+                    } else {
+                      combinedExercises.push({
+                        id: ex.id || Math.random(),
+                        name: ex.name,
+                        notes: ex.notes || "",
+                        sets: [...ex.sets]
+                      });
+                    }
+                  });
+                });
+
+                const startTimes = targetW.map(w => w.startTime).filter(Boolean);
+                const finishTimes = targetW.map(w => w.finishTime).filter(Boolean);
+                const earliestStart = startTimes.length ? startTimes.sort()[0] : base.startTime;
+                const latestFinish = finishTimes.length ? finishTimes.sort().reverse()[0] : base.finishTime;
+
+                const energies = targetW.map(w => w.energy || 3);
+                const avgEnergy = Math.round(energies.reduce((a, b) => a + b, 0) / energies.length);
+
+                const mergedWorkout = {
+                  id: base.id,
+                  date: base.date,
+                  day: base.day,
+                  startTime: earliestStart,
+                  finishTime: latestFinish,
+                  workoutType: base.workoutType,
+                  muscleGroup: base.muscleGroup,
+                  energy: avgEnergy,
+                  unit: base.unit || "lbs",
+                  exercises: combinedExercises
+                };
+
+                currentW = [...currentW.filter(w => w.date !== "2026-05-29"), mergedWorkout];
+                changed = true;
+              }
+              
+              if (changed) {
+                (async () => {
+                  try {
+                    await setDoc(doc(db, "users", u.uid), { workouts: currentW }, { merge: true });
+                    setWorkouts(currentW);
+                    setToast("Database successfully updated & aligned!");
+                  } catch (err) {
+                    console.error("Auto alignment failed", err);
+                  }
+                })();
+              }
+            }
           } else {
             // New Google Signup: Show the mandatory onboarding modal to link Username/PIN
             setShowOnboarding(true);
@@ -1862,6 +2115,14 @@ export default function App() {
     }
   };
 
+
+  const handleCombine = async (mergedWorkout, idsToRemove) => {
+    const updated = [...workouts.filter(w => !idsToRemove.includes(w.id)), mergedWorkout];
+    setWorkouts(updated);
+    await store.set("user-profile", { workouts: updated, unit });
+    setToast("Workouts successfully combined!");
+  };
+
   if (!loaded) return (
     <div style={{ ...S.app, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
       <div style={{ fontSize: 14, color: "#64748b" }}>Loading dashboard...</div>
@@ -1936,7 +2197,7 @@ export default function App() {
 
       {/* Content */}
       {tab === "log" && <LogWorkout workout={workout} setWorkout={setWorkout} unit={unit} onSave={handleSave} savedWorkouts={workouts} setToast={setToast} />}
-      {tab === "history" && <History workouts={workouts} unit={unit} onDelete={handleDelete} />}
+      {tab === "history" && <History workouts={workouts} unit={unit} onDelete={handleDelete} onCombine={handleCombine} />}
       {tab === "progress" && <Progress workouts={workouts} unit={unit} />}
       {tab === "library" && <Library onAddExercise={addExerciseFromLibrary} />}
       {tab === "1rm" && <OneRepMaxDashboard unit={unit} />}
